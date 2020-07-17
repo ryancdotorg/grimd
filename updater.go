@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/md5"
 	"bufio"
 	"fmt"
 	"io"
@@ -11,9 +12,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
-
-var timesSeen = make(map[string]int)
 
 // Update downloads all of the blocklists and imports them into the database
 func update(blockCache *MemoryBlockCache, exceptCache *MemoryBlockCache, wlist []string, blist []string, sources []string) error {
@@ -53,6 +53,10 @@ func downloadFile(uri string, name string) error {
 	}
 	defer response.Body.Close()
 
+	t := time.Now()
+	header := fmt.Sprintf("# Downloaded at %s from %s\n\n", t.Format(time.RFC3339), uri)
+	output.WriteString(header)
+
 	if _, err := io.Copy(output, response.Body); err != nil {
 		return fmt.Errorf("error copying output: %s", err)
 	}
@@ -66,10 +70,12 @@ func fetchSources(sources []string) error {
 	for _, uri := range sources {
 		wg.Add(1)
 
+		h := md5.New()
+		h.Write([]byte(uri))
+		urihash := fmt.Sprintf("%s", h.Sum(nil))
 		u, _ := url.Parse(uri)
 		host := u.Host
-		timesSeen[host] = timesSeen[host] + 1
-		fileName := fmt.Sprintf("%s.%d.list", host, timesSeen[host])
+		fileName := fmt.Sprintf("%s.%x.list", host, urihash)
 
 		go func(uri string, name string) {
 			logger.Debugf("fetching source %s\n", uri)
