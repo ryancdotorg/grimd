@@ -134,7 +134,12 @@ func parseHostFile(fileName string, blockCache *MemoryBlockCache) error {
 			fields := strings.Fields(line)
 
 			if len(fields) > 1 {
-				line = fields[1]
+				// verify this is something that ought to be blocked
+				if fields[0] == "127.0.0.1" || fields[0] == "0.0.0.0" {
+					line = fields[1]
+				} else {
+					continue
+				}
 			} else {
 				line = fields[0]
 			}
