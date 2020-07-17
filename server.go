@@ -19,9 +19,10 @@ type Server struct {
 // Run starts the server
 func (s *Server) Run(config *Config,
 	blockCache *MemoryBlockCache,
+	exceptCache *MemoryBlockCache,
 	questionCache *MemoryQuestionCache) {
 
-	s.handler = NewHandler(config, blockCache, questionCache)
+	s.handler = NewHandler(config, blockCache, exceptCache, questionCache)
 
 	tcpHandler := dns.NewServeMux()
 	tcpHandler.HandleFunc(".", s.handler.DoTCP)
