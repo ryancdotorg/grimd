@@ -196,9 +196,11 @@ func (h *DNSHandler) do(config *Config, blockCache *MemoryBlockCache, questionCa
 
 					logger.Noticef("%s found in blocklist\n", Q.Qname)
 
-					// log query
-					NewEntry := QuestionCacheEntry{Date: time.Now().Unix(), Remote: remote.String(), Query: Q, Blocked: true}
-					go questionCache.Add(NewEntry)
+					if config.QuestionCacheNonblocked {
+						// log query
+						NewEntry := QuestionCacheEntry{Date: time.Now().Unix(), Remote: remote.String(), Query: Q, Blocked: true}
+						go questionCache.Add(NewEntry)
+					}
 
 					// cache the block; we don't know the true TTL for blocked entries: we just enforce our config
 					err := h.cache.Set(key, m, true)
