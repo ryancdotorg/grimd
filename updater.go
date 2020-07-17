@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 )
@@ -166,8 +167,8 @@ func parseHostFile(fileName string, blockCache *MemoryBlockCache, exceptCache *M
 // PerformUpdate updates the block cache by building a new one and swapping
 // it for the old cache.
 func PerformUpdate(config *Config, forceUpdate bool) (*MemoryBlockCache, *MemoryBlockCache) {
-	newBlockCache := &MemoryBlockCache{Backend: make(map[string]bool)}
-	newExceptCache := &MemoryBlockCache{Backend: make(map[string]bool)}
+	newBlockCache := &MemoryBlockCache{Backend: make(map[string]bool), Special: make(map[string]*regexp.Regexp)}
+	newExceptCache := &MemoryBlockCache{Backend: make(map[string]bool), Special: make(map[string]*regexp.Regexp)}
 	if _, err := os.Stat("lists"); os.IsNotExist(err) || forceUpdate {
 		if err := update(newBlockCache, newExceptCache, config.Whitelist, config.Blocklist, config.Sources); err != nil {
 			logger.Fatal(err)

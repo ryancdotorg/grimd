@@ -28,7 +28,11 @@ func StartAPIServer(config *Config,
 	router.Use(cors.Default())
 
 	router.GET("/blockcache", func(c *gin.Context) {
-		c.IndentedJSON(http.StatusOK, gin.H{"length": blockCache.Length(), "items": blockCache.Backend})
+		special := make([]string, 0, len(blockCache.Special))
+		for k := range blockCache.Special {
+			special = append(special, k)
+		}
+		c.IndentedJSON(http.StatusOK, gin.H{"length": blockCache.Length(), "items": blockCache.Backend, "special": special})
 	})
 
 	router.GET("/blockcache/exists/:key", func(c *gin.Context) {
@@ -60,7 +64,11 @@ func StartAPIServer(config *Config,
 	})
 
 	router.GET("/exceptcache", func(c *gin.Context) {
-		c.IndentedJSON(http.StatusOK, gin.H{"length": exceptCache.Length(), "items": exceptCache.Backend})
+		special := make([]string, 0, len(exceptCache.Special))
+		for k := range exceptCache.Special {
+			special = append(special, k)
+		}
+		c.IndentedJSON(http.StatusOK, gin.H{"length": exceptCache.Length(), "items": exceptCache.Backend, "special": special})
 	})
 
 	router.GET("/exceptcache/exists/:key", func(c *gin.Context) {
