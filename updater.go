@@ -15,10 +15,8 @@ import (
 	"time"
 )
 
-var whitelist = make(map[string]bool)
-
 // Update downloads all the blocklists and imports them into the database
-func update(blockCache *MemoryBlockCache, wlist []string, blist []string, sources []string) error {
+func update(blockCache *MemoryBlockCache, exceptCache *MemoryBlockCache, wlist []string, blist []string, sources []string) error {
 	if _, err := os.Stat("sources"); os.IsNotExist(err) {
 		if err := os.Mkdir("sources", 0700); err != nil {
 			return fmt.Errorf("error creating sources directory: %s", err)
@@ -26,7 +24,7 @@ func update(blockCache *MemoryBlockCache, wlist []string, blist []string, source
 	}
 
 	for _, entry := range wlist {
-		whitelist[entry] = true
+		exceptCache.Set(entry, true)
 	}
 
 	for _, entry := range blist {
@@ -112,7 +110,7 @@ func fetchSources(sources []string) error {
 }
 
 // UpdateBlockCache updates the BlockCache
-func updateBlockCache(blockCache *MemoryBlockCache, sourceDirs []string) error {
+func updateBlockCache(blockCache *MemoryBlockCache, exceptCache *MemoryBlockCache, sourceDirs []string) error {
 	logger.Debugf("loading blocked domains from %d locations...\n", len(sourceDirs))
 
 	for _, dir := range sourceDirs {
@@ -125,7 +123,7 @@ func updateBlockCache(blockCache *MemoryBlockCache, sourceDirs []string) error {
 			if !f.IsDir() {
 				fileName := filepath.FromSlash(path)
 
-				if err := parseHostFile(fileName, blockCache); err != nil {
+				if err := parseHostFile(fileName, blockCache, exceptCache); err != nil {
 					return fmt.Errorf("error parsing hostfile %s", err)
 				}
 			}
@@ -143,7 +141,7 @@ func updateBlockCache(blockCache *MemoryBlockCache, sourceDirs []string) error {
 	return nil
 }
 
-func parseHostFile(fileName string, blockCache *MemoryBlockCache) error {
+func parseHostFile(fileName string, blockCache *MemoryBlockCache, exceptCache *MemoryBlockCache) error {
 	file, err := os.Open(fileName)
 	if err != nil {
 		return fmt.Errorf("error opening file: %s", err)
@@ -160,6 +158,7 @@ func parseHostFile(fileName string, blockCache *MemoryBlockCache) error {
 		line := scanner.Text()
 		line = strings.Split(line, "#")[0]
 		line = strings.TrimSpace(line)
+		isException := strings.HasPrefix(line, "!")
 
 		if len(line) > 0 {
 			fields := strings.Fields(line)
@@ -175,10 +174,19 @@ func parseHostFile(fileName string, blockCache *MemoryBlockCache) error {
 				line = fields[0]
 			}
 
-			if !blockCache.Exists(line) && !whitelist[line] {
-				err := blockCache.Set(line, true)
-				if err != nil {
-					logger.Critical(err)
+			if isException {
+				if !exceptCache.Exists(line) {
+					err := exceptCache.Set(line[1:], true)
+					if err != nil {
+						logger.Critical(err)
+					}
+				}
+			} else {
+				if !blockCache.Exists(line) && !exceptCache.Exists(line) {
+					err := blockCache.Set(line, true)
+					if err != nil {
+						logger.Critical(err)
+					}
 				}
 			}
 		}
@@ -193,16 +201,17 @@ func parseHostFile(fileName string, blockCache *MemoryBlockCache) error {
 
 // PerformUpdate updates the block cache by building a new one and swapping
 // it for the old cache.
-func PerformUpdate(config *Config, forceUpdate bool) *MemoryBlockCache {
+func PerformUpdate(config *Config, forceUpdate bool) (*MemoryBlockCache, *MemoryBlockCache) {
 	newBlockCache := &MemoryBlockCache{Backend: make(map[string]bool), Special: make(map[string]*regexp.Regexp)}
+	newExceptCache := &MemoryBlockCache{Backend: make(map[string]bool)}
 	if _, err := os.Stat("lists"); os.IsNotExist(err) || forceUpdate {
-		if err := update(newBlockCache, config.Whitelist, config.Blocklist, config.Sources); err != nil {
+		if err := update(newBlockCache, newExceptCache, config.Whitelist, config.Blocklist, config.Sources); err != nil {
 			logger.Fatal(err)
 		}
 	}
-	if err := updateBlockCache(newBlockCache, config.SourceDirs); err != nil {
+	if err := updateBlockCache(newBlockCache, newExceptCache, config.SourceDirs); err != nil {
 		logger.Fatal(err)
 	}
 
-	return newBlockCache
+	return newBlockCache, newExceptCache
 }

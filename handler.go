@@ -53,7 +53,7 @@ type DNSOperationData struct {
 }
 
 // NewHandler returns a new DNSHandler
-func NewHandler(config *Config, blockCache *MemoryBlockCache, questionCache *MemoryQuestionCache) *DNSHandler {
+func NewHandler(config *Config, blockCache *MemoryBlockCache, exceptCache *MemoryBlockCache, questionCache *MemoryQuestionCache) *DNSHandler {
 	var (
 		clientConfig *dns.ClientConfig
 		resolver     *Resolver
@@ -80,12 +80,12 @@ func NewHandler(config *Config, blockCache *MemoryBlockCache, questionCache *Mem
 		active:         true,
 	}
 
-	go handler.do(config, blockCache, questionCache)
+	go handler.do(config, blockCache, exceptCache, questionCache)
 
 	return handler
 }
 
-func (h *DNSHandler) do(config *Config, blockCache *MemoryBlockCache, questionCache *MemoryQuestionCache) {
+func (h *DNSHandler) do(config *Config, blockCache *MemoryBlockCache, exceptCache *MemoryBlockCache, questionCache *MemoryQuestionCache) {
 	for {
 		data, ok := <-h.requestChannel
 		if !ok {
@@ -154,7 +154,7 @@ func (h *DNSHandler) do(config *Config, blockCache *MemoryBlockCache, questionCa
 			var drblblacklisted bool
 
 			if IPQuery > 0 {
-				blacklisted = blockCache.Exists(Q.Qname)
+				blacklisted = !exceptCache.Exists(Q.Qname) && blockCache.Exists(Q.Qname)
 
 				if config.UseDrbl > 0 {
 					drblblacklisted = drblCheckHostname(Q.Qname)

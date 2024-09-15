@@ -36,6 +36,7 @@ func isRunningInDockerContainer() bool {
 func StartAPIServer(config *Config,
 	reloadChan chan bool,
 	blockCache *MemoryBlockCache,
+	exceptCache *MemoryBlockCache,
 	questionCache *MemoryQuestionCache) (*http.Server, error) {
 	if !config.APIDebug {
 		gin.SetMode(gin.ReleaseMode)
@@ -172,6 +173,38 @@ func StartAPIServer(config *Config,
 				logger.Error(err)
 			}
 		}
+	})
+
+	router.GET("/exceptcache", func(c *gin.Context) {
+		c.IndentedJSON(http.StatusOK, gin.H{"length": exceptCache.Length(), "items": exceptCache.Backend})
+	})
+
+	router.GET("/exceptcache/exists/:key", func(c *gin.Context) {
+		c.IndentedJSON(http.StatusOK, gin.H{"exists": exceptCache.Exists(c.Param("key"))})
+	})
+
+	router.GET("/exceptcache/get/:key", func(c *gin.Context) {
+		if ok, _ := exceptCache.Get(c.Param("key")); !ok {
+			c.IndentedJSON(http.StatusOK, gin.H{"error": c.Param("key") + " not found"})
+		} else {
+			c.IndentedJSON(http.StatusOK, gin.H{"success": ok})
+		}
+	})
+
+	router.GET("/exceptcache/length", func(c *gin.Context) {
+		c.IndentedJSON(http.StatusOK, gin.H{"length": exceptCache.Length()})
+	})
+
+	router.GET("/exceptcache/remove/:key", func(c *gin.Context) {
+		// Removes from exceptCache only. If the domain has already been queried and placed into MemoryCache, will need to wait until item is expired.
+		exceptCache.Remove(c.Param("key"))
+		c.IndentedJSON(http.StatusOK, gin.H{"success": true})
+	})
+
+	router.GET("/exceptcache/set/:key", func(c *gin.Context) {
+		// MemoryBlockCache Set() always returns nil, so ignoring response.
+		_ = exceptCache.Set(c.Param("key"), true)
+		c.IndentedJSON(http.StatusOK, gin.H{"success": true})
 	})
 
 	router.GET("/questioncache", func(c *gin.Context) {
