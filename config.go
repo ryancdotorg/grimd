@@ -34,6 +34,7 @@ type Config struct {
 	Timeout           int
 	Expire            uint32
 	Maxcount          int
+	QuestionCacheNonblocked bool
 	QuestionCacheCap  int
 	TTL               uint32
 	Blocklist         []string
@@ -116,6 +117,9 @@ maxcount = 0
 
 # question cache capacity, 0 for infinite but not recommended (this is used for storing logs)
 questioncachecap = 5000
+
+# should questions for non-blocked hosts be cached/logged?
+questioncachenonblocked = true
 
 # manual blocklist entries
 blocklist = []
