@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"bufio"
 	"fmt"
 	"io"
@@ -11,9 +12,9 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
-var timesSeen = make(map[string]int)
 var whitelist = make(map[string]bool)
 
 // Update downloads all the blocklists and imports them into the database
@@ -66,6 +67,13 @@ func downloadFile(uri string, name string) error {
 		}
 	}(response.Body)
 
+	downloadTime := time.Now()
+	header := fmt.Sprintf(
+		"# Downloaded at %s from %s\n\n",
+		downloadTime.Format(time.RFC3339), uri,
+	)
+	output.WriteString(header)
+
 	if _, err := io.Copy(output, response.Body); err != nil {
 		return fmt.Errorf("error copying output: %s", err)
 	}
@@ -79,10 +87,14 @@ func fetchSources(sources []string) error {
 	for _, uri := range sources {
 		wg.Add(1)
 
+		// get the first 12 bytes of the sha256 hash of the uri
+		hash := sha256.New()
+		hash.Write([]byte(uri))
+		urihash := fmt.Sprintf("%s", hash.Sum(nil)[:12])
+
 		u, _ := url.Parse(uri)
 		host := u.Host
-		timesSeen[host] = timesSeen[host] + 1
-		fileName := fmt.Sprintf("%s.%d.list", host, timesSeen[host])
+		fileName := fmt.Sprintf("%s.%x.list", host, urihash)
 
 		go func(uri string, name string) {
 			logger.Debugf("fetching source %s\n", uri)
