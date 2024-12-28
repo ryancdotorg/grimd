@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -42,32 +43,115 @@ func update(blockCache *MemoryBlockCache, wlist []string, blist []string, source
 	return nil
 }
 
+func makeRequest(uri string, filePath string) (func() (*http.Response, error), error) {
+	client := &http.Client{}
+	request, err := http.NewRequest("GET", uri, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error downloading source: %s %s", uri, err)
+	}
+
+	current, err := os.ReadFile(filePath)
+	if err == nil {
+		re := regexp.MustCompile("^# (Date|ETag): ([^\r\n]+)[\r\n]*")
+		for _, line := range strings.Split(string(current), "\n") {
+			if line == "" {
+				break
+			} else if m := re.FindStringSubmatch(line); len(m) > 0 {
+				if m[1] == "ETag" {
+					request.Header.Add("If-None-Match", m[2])
+				} else if m[1] == "Date" {
+					request.Header.Add("If-Modified-Since", m[2])
+				}
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		logger.Warningf("Error reading file: %s", err)
+	}
+
+	return func() (*http.Response, error) {
+		return client.Do(request)
+	}, nil
+}
+
 func downloadFile(uri string, name string) error {
 	filePath := filepath.FromSlash(fmt.Sprintf("sources/%s", name))
 
-	output, err := os.Create(filePath)
+	get, err := makeRequest(uri, filePath)
+	if err != nil {
+		return err
+	}
+
+	output, err := os.CreateTemp("sources", fmt.Sprintf("._temp.%s.*", name))
 	if err != nil {
 		return fmt.Errorf("error creating file: %s", err)
 	}
 
+	tempPath := filepath.FromSlash(output.Name())
+
 	defer func() {
-		if err := output.Close(); err != nil {
+		if err := output.Close(); err != nil && err != fs.ErrClosed {
 			logger.Criticalf("Error closing file: %s\n", err)
 		}
 	}()
 
-	response, err := http.Get(uri)
+	defer func() {
+		if _, err := os.Stat(tempPath); err != nil {
+			if os.IsNotExist(err) {
+				// assume the file was renamed
+				return
+			}
+		}
+
+		// remove the temp file if it hasn't been renamed
+		if err := os.Remove(tempPath); err != nil {
+			logger.Criticalf("Error removing temp file `%s`: %s\n", tempPath, err)
+		}
+	}()
+
+	response, err := get()
 	if err != nil {
-		return fmt.Errorf("error downloading source: %s", err)
+		return fmt.Errorf("error downloading source: %s %s", uri, err)
 	}
+
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
 		}
 	}(response.Body)
 
+	if response.StatusCode == 304 {
+		logger.Infof("Not modified: %s", uri)
+		return nil
+	} else if response.StatusCode != 200 {
+		return fmt.Errorf("error downloading source: %s %s", uri, response.Status)
+	}
+
+	// save etag or date so we don't have to re-download unchanged files
+	// NOTE: we prefer ETag over Date - in theory if both the If-None-Match
+	// header with an ETag and If-Modified-Since with a Date are set, the
+	// latter is supposed to be ignored, but not all servers work like that.
+	if etag := response.Header.Get("ETag"); etag != "" {
+		output.WriteString(fmt.Sprintf("# ETag: %s\n", etag))
+	} else if date := response.Header.Get("Date"); date != "" {
+		output.WriteString(fmt.Sprintf("# Date: %s\n", date))
+	}
+
+	output.WriteString("\n")
+
 	if _, err := io.Copy(output, response.Body); err != nil {
 		return fmt.Errorf("error copying output: %s", err)
+	}
+
+	if err := output.Close(); err != nil {
+		logger.Criticalf("Error closing file: %s\n", err)
+	}
+
+	if err := os.Chmod(tempPath, 0o644); err != nil {
+		logger.Warningf("error chmod temp file: %s", err)
+	}
+
+	if err := os.Rename(tempPath, filePath); err != nil {
+		return fmt.Errorf("error renaming output: %s", err)
 	}
 
 	return nil
@@ -84,6 +168,7 @@ func fetchSources(sources []string) error {
 		timesSeen[host] = timesSeen[host] + 1
 		fileName := fmt.Sprintf("%s.%d.list", host, timesSeen[host])
 
+		// TODO: create a Client and reuse it for all the requests
 		go func(uri string, name string) {
 			logger.Debugf("fetching source %s\n", uri)
 			if err := downloadFile(uri, name); err != nil {
@@ -110,7 +195,7 @@ func updateBlockCache(blockCache *MemoryBlockCache, sourceDirs []string) error {
 		}
 
 		err := filepath.Walk(dir, func(path string, f os.FileInfo, _ error) error {
-			if !f.IsDir() {
+			if !(f.IsDir() || strings.HasPrefix(f.Name(), "._temp.")) {
 				fileName := filepath.FromSlash(path)
 
 				if err := parseHostFile(fileName, blockCache); err != nil {
