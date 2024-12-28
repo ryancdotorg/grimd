@@ -13,7 +13,7 @@ import (
 )
 
 // BuildVersion returns the build version of grimd, this should be incremented every new release
-var BuildVersion = "1.0.7"
+var BuildVersion = "1.1.4+ryanc.1"
 
 // ConfigVersion returns the version of grimd, this should be incremented every time the config changes so grimd presents a warning
 var ConfigVersion = "1.0.9"
